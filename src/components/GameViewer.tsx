@@ -157,10 +157,14 @@ export function GameViewer({ game, onClose }: Props) {
   const opponent = game.playerColor === 'white' ? game.game.black.username : game.game.white.username;
   const opponentRating = game.playerColor === 'white' ? game.game.black.rating : game.game.white.rating;
 
-  // Best move arrow
-  const bestMoveArrows: [string, string, string][] = [];
+  // Best move arrow (v5 Arrow format)
+  const bestMoveArrows: Array<{ startSquare: string; endSquare: string; color: string }> = [];
   if (engineOn && analysis.bestMove && analysis.bestMove.length >= 4) {
-    bestMoveArrows.push([analysis.bestMove.slice(0,2), analysis.bestMove.slice(2,4), 'rgb(0, 200, 100)']);
+    bestMoveArrows.push({
+      startSquare: analysis.bestMove.slice(0, 2),
+      endSquare:   analysis.bestMove.slice(2, 4),
+      color: 'rgb(0, 200, 100)',
+    });
   }
 
   return (
@@ -199,17 +203,20 @@ export function GameViewer({ game, onClose }: Props) {
           {/* Board column */}
           <div className="w-full md:w-[380px] flex-shrink-0">
             <Chessboard
-              position={currentFen}
-              boardOrientation={game.playerColor}
-              arePiecesDraggable={false}
-              customBoardStyle={{ borderRadius: '8px' }}
-              customArrows={bestMoveArrows}
+              options={{
+                position: currentFen,
+                boardOrientation: game.playerColor,
+                allowDragging: false,
+                boardStyle: { borderRadius: '8px' },
+                arrows: bestMoveArrows,
+                animationDurationInMs: 150,
+              }}
             />
 
             {/* Progress bar */}
             <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden mt-3">
               <div
-                className="h-full bg-amber-500 rounded-full transition-all duration-150"
+                className="h-full bg-amber-500 rounded-full transition-all duration-150 min-w-[3px]"
                 style={{ width: `${game.moves.length ? (ply / game.moves.length) * 100 : 0}%` }}
               />
             </div>
