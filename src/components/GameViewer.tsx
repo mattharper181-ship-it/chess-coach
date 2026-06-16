@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Chessboard } from 'react-chessboard';
 import type { AnalyzedGame } from '../lib/game-analyzer';
 import { useStockfish } from '../hooks/useStockfish';
 import { EnginePanel } from './EnginePanel';
+import { MoveCoach } from './MoveCoach';
+import { analyzeMove, startTip } from '../lib/move-coach';
 
 interface Props {
   game: AnalyzedGame;
@@ -29,6 +31,16 @@ export function GameViewer({ game, onClose }: Props) {
   const move = game.moves[ply];
   const isPlayerMove = move?.ply % 2 === (game.playerColor === 'white' ? 0 : 1);
   const annotation = move?.nag ? NAG_LABELS[move.nag] : null;
+
+  // Coach tip: about the move that JUST happened (ply-1), not the next one
+  const coachTip = useMemo(() => {
+    if (ply === 0) return startTip(game.playerColor, game.opening);
+    const lastMove = game.moves[ply - 1];
+    if (!lastMove) return startTip(game.playerColor, game.opening);
+    const prevFen = ply <= 1 ? START_FEN : (game.moves[ply - 2]?.fen ?? START_FEN);
+    const lastIsPlayerMove = lastMove.ply % 2 === (game.playerColor === 'white' ? 0 : 1);
+    return analyzeMove(prevFen, lastMove.san, lastMove.nag, lastMove.ply, lastIsPlayerMove);
+  }, [ply, game]);
 
   const result = game.result === 'win' ? '✅ Win' : game.result === 'loss' ? '❌ Loss' : '🤝 Draw';
   const opponent = game.playerColor === 'white' ? game.game.black.username : game.game.white.username;
@@ -123,6 +135,12 @@ export function GameViewer({ game, onClose }: Props) {
 
           {/* Move list + errors */}
           <div className="flex-1">
+            {/* Coach tip */}
+            <div className="mb-4">
+              <h3 className="text-gray-400 text-xs font-medium mb-2 uppercase tracking-wider">Coach</h3>
+              <MoveCoach tip={coachTip} />
+            </div>
+
             <h3 className="text-gray-400 text-sm font-medium mb-3 uppercase tracking-wider">Moves</h3>
             <div className="space-y-0.5 max-h-64 overflow-y-auto">
               {Array.from({ length: Math.ceil(game.moves.length / 2) }, (_, i) => {
