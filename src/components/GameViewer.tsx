@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import type { AnalyzedGame } from '../lib/game-analyzer';
 import { useStockfish } from '../hooks/useStockfish';
 import { EnginePanel } from './EnginePanel';
 import { MoveCoach } from './MoveCoach';
+import { EvalChart } from './EvalChart';
 import { analyzeMove, startTip, prospectiveTip } from '../lib/move-coach';
 import type { CoachCategory } from '../lib/move-coach';
 
@@ -13,13 +14,13 @@ interface Props {
   onClose: () => void;
 }
 
-const NAG_LABELS: Record<number, { label: string; color: string }> = {
-  1: { label: '!',  color: 'text-green-400' },
-  2: { label: '??', color: 'text-red-500'   },
-  3: { label: '!!', color: 'text-blue-400'  },
-  4: { label: '?',  color: 'text-orange-400'},
-  5: { label: '!?', color: 'text-purple-400'},
-  6: { label: '?!', color: 'text-yellow-400'},
+const NAG_LABELS: Record<number, { label: string; color: string; dot: string }> = {
+  1: { label: '!',  color: 'text-green-400',  dot: 'bg-green-500'  },
+  2: { label: '??', color: 'text-red-500',    dot: 'bg-red-500'    },
+  3: { label: '!!', color: 'text-cyan-400',   dot: 'bg-cyan-400'   },
+  4: { label: '?',  color: 'text-orange-400', dot: 'bg-orange-500' },
+  5: { label: '!?', color: 'text-purple-400', dot: 'bg-purple-400' },
+  6: { label: '?!', color: 'text-yellow-400', dot: 'bg-yellow-400' },
 };
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -157,6 +158,24 @@ export function GameViewer({ game, onClose }: Props) {
   const opponent = game.playerColor === 'white' ? game.game.black.username : game.game.white.username;
   const opponentRating = game.playerColor === 'white' ? game.game.black.rating : game.game.white.rating;
 
+  // Classification counts for player and opponent
+  const playerPlyMod = game.playerColor === 'white' ? 0 : 1;
+  const playerMovesList = game.moves.filter(m => m.ply % 2 === playerPlyMod);
+  const oppMovesList    = game.moves.filter(m => m.ply % 2 !== playerPlyMod);
+  const playerStats = {
+    brilliant:   playerMovesList.filter(m => m.nag === 3).length,
+    good:        playerMovesList.filter(m => m.nag === 1).length,
+    inaccuracy:  playerMovesList.filter(m => m.nag === 6).length,
+    mistake:     playerMovesList.filter(m => m.nag === 4).length,
+    blunder:     playerMovesList.filter(m => m.nag === 2).length,
+  };
+  const oppStats = {
+    inaccuracy: oppMovesList.filter(m => m.nag === 6).length,
+    mistake:    oppMovesList.filter(m => m.nag === 4).length,
+    blunder:    oppMovesList.filter(m => m.nag === 2).length,
+  };
+  const oppAccuracy = game.game.accuracies?.[game.playerColor === 'white' ? 'black' : 'white'];
+
   // Best move arrow (v5 Arrow format)
   const bestMoveArrows: Array<{ startSquare: string; endSquare: string; color: string }> = [];
   if (engineOn && analysis.bestMove && analysis.bestMove.length >= 4) {
@@ -208,6 +227,8 @@ export function GameViewer({ game, onClose }: Props) {
                 boardOrientation: game.playerColor,
                 allowDragging: false,
                 boardStyle: { borderRadius: '8px' },
+                lightSquareStyle: { backgroundColor: '#F0D9B5' },
+                darkSquareStyle:  { backgroundColor: '#B58863' },
                 arrows: bestMoveArrows,
                 animationDurationInMs: 150,
               }}
@@ -251,6 +272,69 @@ export function GameViewer({ game, onClose }: Props) {
 
           {/* Right column */}
           <div className="flex-1 min-w-0">
+            {/* Analysis panel */}
+            <div className="mb-4 bg-gray-800/20 rounded-xl p-3 border border-gray-800/50">
+              {/* Eval chart */}
+              <EvalChart moves={game.moves} currentPly={ply} onSeek={setPly} />
+
+              {/* Accuracy + classification row */}
+              <div className="flex items-start justify-between mt-2 gap-2">
+                {/* You */}
+                <div className="min-w-0">
+                  <div className="flex items-baseline gap-1.5 mb-1">
+                    <span className="text-xs text-gray-400 capitalize">You ({game.playerColor})</span>
+                    {game.accuracy != null && (
+                      <span className="text-sm font-bold text-white">{Math.round(game.accuracy)}%</span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {playerStats.brilliant > 0 && (
+                      <span className="text-xs bg-cyan-900/50 text-cyan-300 px-1.5 py-0.5 rounded font-medium">{playerStats.brilliant}!!</span>
+                    )}
+                    {playerStats.good > 0 && (
+                      <span className="text-xs bg-green-900/50 text-green-300 px-1.5 py-0.5 rounded font-medium">{playerStats.good}!</span>
+                    )}
+                    {playerStats.inaccuracy > 0 && (
+                      <span className="text-xs bg-yellow-900/50 text-yellow-300 px-1.5 py-0.5 rounded font-medium">{playerStats.inaccuracy}?!</span>
+                    )}
+                    {playerStats.mistake > 0 && (
+                      <span className="text-xs bg-orange-900/50 text-orange-300 px-1.5 py-0.5 rounded font-medium">{playerStats.mistake}?</span>
+                    )}
+                    {playerStats.blunder > 0 && (
+                      <span className="text-xs bg-red-900/50 text-red-300 px-1.5 py-0.5 rounded font-medium">{playerStats.blunder}??</span>
+                    )}
+                    {(playerStats.blunder + playerStats.mistake + playerStats.inaccuracy + playerStats.good + playerStats.brilliant) === 0 && (
+                      <span className="text-xs text-gray-600">—</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Opponent */}
+                <div className="min-w-0 text-right">
+                  <div className="flex items-baseline gap-1.5 justify-end mb-1">
+                    {oppAccuracy != null && (
+                      <span className="text-sm font-bold text-white">{Math.round(oppAccuracy)}%</span>
+                    )}
+                    <span className="text-xs text-gray-400">{opponent}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 justify-end">
+                    {oppStats.inaccuracy > 0 && (
+                      <span className="text-xs bg-yellow-900/50 text-yellow-300 px-1.5 py-0.5 rounded font-medium">{oppStats.inaccuracy}?!</span>
+                    )}
+                    {oppStats.mistake > 0 && (
+                      <span className="text-xs bg-orange-900/50 text-orange-300 px-1.5 py-0.5 rounded font-medium">{oppStats.mistake}?</span>
+                    )}
+                    {oppStats.blunder > 0 && (
+                      <span className="text-xs bg-red-900/50 text-red-300 px-1.5 py-0.5 rounded font-medium">{oppStats.blunder}??</span>
+                    )}
+                    {(oppStats.blunder + oppStats.mistake + oppStats.inaccuracy) === 0 && (
+                      <span className="text-xs text-gray-600">—</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Coach section */}
             <div className="mb-4">
               <div className="flex items-center justify-between mb-2">
@@ -305,9 +389,14 @@ export function GameViewer({ game, onClose }: Props) {
                           ply === i * 2 + j + 1 ? 'bg-amber-500 text-black' : 'hover:bg-gray-800 text-gray-300'
                         }`}
                       >
+                        {m.nag && NAG_LABELS[m.nag] && (
+                          <span className={`inline-block w-2 h-2 rounded-sm flex-shrink-0 ${NAG_LABELS[m.nag].dot}`} />
+                        )}
                         {m.san}
                         {m.nag && NAG_LABELS[m.nag] && (
-                          <span className={`font-bold ${NAG_LABELS[m.nag].color}`}>{NAG_LABELS[m.nag].label}</span>
+                          <span className={`text-xs font-bold ${ply === i * 2 + j + 1 ? 'text-black' : NAG_LABELS[m.nag].color}`}>
+                            {NAG_LABELS[m.nag].label}
+                          </span>
                         )}
                       </button>
                     ))}
