@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Chessboard } from 'react-chessboard';
 import type { AnalyzedGame } from '../lib/game-analyzer';
+import { useStockfish } from '../hooks/useStockfish';
+import { EnginePanel } from './EnginePanel';
 
 interface Props {
   game: AnalyzedGame;
@@ -16,26 +18,42 @@ const NAG_LABELS: Record<number, { label: string; color: string }> = {
   6: { label: '?!', color: 'text-yellow-400' },
 };
 
+const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
 export function GameViewer({ game, onClose }: Props) {
   const [ply, setPly] = useState(0);
+  const [engineOn, setEngineOn] = useState(false);
+  const { analysis, analyze, stop, ready } = useStockfish();
+
+  const currentFen = ply === 0 ? START_FEN : game.moves[ply - 1]?.fen ?? START_FEN;
   const move = game.moves[ply];
-  const isPlayerMove = game.moves[ply]?.ply % 2 === (game.playerColor === 'white' ? 0 : 1);
-
-  const prev = () => setPly(p => Math.max(0, p - 1));
-  const next = () => setPly(p => Math.min(game.moves.length - 1, p + 1));
-
-  const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-  const currentFen = ply === 0 ? startFen : game.moves[ply - 1]?.fen ?? startFen;
-
+  const isPlayerMove = move?.ply % 2 === (game.playerColor === 'white' ? 0 : 1);
   const annotation = move?.nag ? NAG_LABELS[move.nag] : null;
 
   const result = game.result === 'win' ? '✅ Win' : game.result === 'loss' ? '❌ Loss' : '🤝 Draw';
   const opponent = game.playerColor === 'white' ? game.game.black.username : game.game.white.username;
   const opponentRating = game.playerColor === 'white' ? game.game.black.rating : game.game.white.rating;
 
+  // Analyze whenever the position changes and engine is on
+  useEffect(() => {
+    if (engineOn && ready) analyze(currentFen);
+    else if (!engineOn) stop();
+  }, [engineOn, currentFen, ready]);
+
+  // Build arrow for best move
+  const bestMoveArrows: [string, string, string][] = [];
+  if (engineOn && analysis.bestMove && analysis.bestMove.length >= 4) {
+    const from = analysis.bestMove.slice(0, 2);
+    const to = analysis.bestMove.slice(2, 4);
+    bestMoveArrows.push([from, to, 'rgb(0, 200, 100)']);
+  }
+
+  const prev = () => setPly(p => Math.max(0, p - 1));
+  const next = () => setPly(p => Math.min(game.moves.length - 1, p + 1));
+
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-auto">
+      <div className="bg-gray-900 rounded-2xl w-full max-w-5xl max-h-[92vh] overflow-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-gray-800">
           <div>
@@ -47,37 +65,63 @@ export function GameViewer({ game, onClose }: Props) {
               {game.accuracy != null && <span>Accuracy: {Math.round(game.accuracy)}%</span>}
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">✕</button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setEngineOn(o => !o)}
+              title={ready ? undefined : 'Engine loading…'}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                engineOn
+                  ? 'bg-green-700 text-green-100 hover:bg-green-600'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+              } ${!ready ? 'opacity-50 cursor-wait' : ''}`}
+            >
+              <span>⚙</span>
+              {engineOn ? 'Engine ON' : 'Engine OFF'}
+              {!ready && <span className="text-xs opacity-70">(loading)</span>}
+            </button>
+            <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">✕</button>
+          </div>
         </div>
 
         <div className="flex flex-col md:flex-row gap-6 p-5">
-          {/* Board */}
-          <div className="w-full md:w-[360px] flex-shrink-0">
+          {/* Board + engine */}
+          <div className="w-full md:w-[380px] flex-shrink-0">
             <Chessboard
               position={currentFen}
               boardOrientation={game.playerColor}
               arePiecesDraggable={false}
               customBoardStyle={{ borderRadius: '8px' }}
+              customArrows={bestMoveArrows}
             />
-            {/* Controls */}
+
+            {/* Nav controls */}
             <div className="flex gap-2 mt-3 justify-center">
               <button onClick={() => setPly(0)} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm">⏮</button>
               <button onClick={prev} className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm">◀</button>
               <button onClick={next} className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm">▶</button>
               <button onClick={() => setPly(game.moves.length - 1)} className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm">⏭</button>
             </div>
+
             {move && (
               <div className="mt-3 text-center text-sm text-gray-400">
                 Move {Math.floor(move.ply / 2) + 1}{move.ply % 2 === 0 ? '.' : '...'}{' '}
                 <span className="text-white font-medium">{move.san}</span>
                 {annotation && <span className={`ml-1 font-bold ${annotation.color}`}>{annotation.label}</span>}
-                {!isPlayerMove && <span className="ml-2 text-gray-600">(opponent)</span>}
-                {isPlayerMove && <span className="ml-2 text-amber-400">← your move</span>}
+                {isPlayerMove
+                  ? <span className="ml-2 text-amber-400">← your move</span>
+                  : <span className="ml-2 text-gray-600">(opponent)</span>}
+              </div>
+            )}
+
+            {/* Engine panel */}
+            {engineOn && (
+              <div className="mt-4">
+                <EnginePanel analysis={analysis} fen={currentFen} />
               </div>
             )}
           </div>
 
-          {/* Move list */}
+          {/* Move list + errors */}
           <div className="flex-1">
             <h3 className="text-gray-400 text-sm font-medium mb-3 uppercase tracking-wider">Moves</h3>
             <div className="space-y-0.5 max-h-64 overflow-y-auto">
@@ -106,7 +150,6 @@ export function GameViewer({ game, onClose }: Props) {
               })}
             </div>
 
-            {/* Mistakes summary */}
             {(game.blunders.length > 0 || game.mistakes.length > 0) && (
               <div className="mt-5">
                 <h3 className="text-gray-400 text-sm font-medium mb-3 uppercase tracking-wider">Your Errors</h3>
@@ -118,9 +161,7 @@ export function GameViewer({ game, onClose }: Props) {
                       className="w-full text-left flex items-center gap-2 px-3 py-2 bg-red-900/30 border border-red-700/40 rounded-lg hover:bg-red-900/50 transition-colors"
                     >
                       <span className="text-red-400 font-bold">??</span>
-                      <span className="text-sm text-gray-300">
-                        Move {Math.floor(m.ply / 2) + 1} — {m.san}
-                      </span>
+                      <span className="text-sm text-gray-300">Move {Math.floor(m.ply / 2) + 1} — {m.san}</span>
                     </button>
                   ))}
                   {game.mistakes.map(m => (
@@ -130,9 +171,7 @@ export function GameViewer({ game, onClose }: Props) {
                       className="w-full text-left flex items-center gap-2 px-3 py-2 bg-orange-900/30 border border-orange-700/40 rounded-lg hover:bg-orange-900/50 transition-colors"
                     >
                       <span className="text-orange-400 font-bold">?</span>
-                      <span className="text-sm text-gray-300">
-                        Move {Math.floor(m.ply / 2) + 1} — {m.san}
-                      </span>
+                      <span className="text-sm text-gray-300">Move {Math.floor(m.ply / 2) + 1} — {m.san}</span>
                     </button>
                   ))}
                 </div>
